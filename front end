@@ -1,0 +1,153 @@
+import streamlit as st
+import pandas as pd
+from backend.py import (
+    get_campaigns, get_campaign_metrics, get_platforms, 
+    create_campaign, update_campaign, delete_campaign
+)
+from datetime import date
+
+# Set up the main page title and layout
+st.set_page_config(layout="wide", page_title="Digital Ad Campaign Tracker")
+st.title("📊 Digital Ad Campaign Tracker")
+st.markdown("### Monitor and analyze your digital ad campaign performance.")
+
+# --- BUSINESS INSIGHTS SECTION ---
+st.header("Business Insights")
+metrics, error = get_campaign_metrics()
+if error:
+    st.error(error)
+elif metrics['total_campaigns'] is None or metrics['total_campaigns'] == 0:
+    st.info("No campaign data available yet. Please add a campaign using the sidebar.")
+else:
+    col1, col2, col3, col4, col5 = st.columns(5)
+    total_cost = metrics['total_cost'] or 0
+    total_clicks = metrics['total_clicks'] or 0
+    total_conversions = metrics['total_conversions'] or 0
+    
+    with col1:
+        st.metric(label="Total Campaigns", value=int(metrics['total_campaigns']))
+    with col2:
+        st.metric(label="Total Cost", value=f"${total_cost:,.2f}")
+    with col3:
+        avg_clicks = metrics['avg_clicks'] or 0
+        st.metric(label="Average Clicks", value=f"{avg_clicks:,.2f}")
+    with col4:
+        st.metric(label="Min Cost", value=f"${metrics['min_cost']:,.2f}")
+    with col5:
+        st.metric(label="Max Cost", value=f"${metrics['max_cost']:,.2f}")
+
+    st.markdown("---")
+    
+    # Business Insights Calculations
+    st.subheader("Key Performance Indicators")
+    insights_col1, insights_col2 = st.columns(2)
+    with insights_col1:
+        if total_clicks > 0:
+            cost_per_click = total_cost / total_clicks
+            st.metric(label="Cost Per Click (CPC)", value=f"${cost_per_click:.2f}")
+        else:
+            st.warning("Cannot calculate CPC: No clicks recorded.")
+
+    with insights_col2:
+        if total_clicks > 0:
+            conversion_rate = (total_conversions / total_clicks) * 100
+            st.metric(label="Conversion Rate", value=f"{conversion_rate:.2f}%")
+        else:
+            st.warning("Cannot calculate Conversion Rate: No clicks recorded.")
+    st.markdown("---")
+
+# --- CRUD OPERATIONS (SIDEBAR) ---
+st.sidebar.header("Campaign Management (CRUD)")
+crud_action = st.sidebar.radio(
+    "Choose Action",
+    ['Create', 'Update', 'Delete']
+)
+
+if crud_action == 'Create':
+    st.sidebar.subheader("Create a New Campaign")
+    with st.sidebar.form("create_form"):
+        new_id = st.text_input("Campaign ID", help="Must be unique. e.g., 'C-001'")
+        new_name = st.text_input("Campaign Name")
+        new_platform = st.selectbox("Platform", ['Google Ads', 'Facebook Ads', 'Twitter Ads', 'Instagram Ads', 'Other'])
+        new_start_date = st.date_input("Start Date", date.today())
+        new_cost = st.number_input("Cost ($)", min_value=0.0, format="%.2f")
+        new_clicks = st.number_input("Clicks", min_value=0, step=1)
+        new_conversions = st.number_input("Conversions", min_value=0, step=1)
+        create_button = st.form_submit_button("Create Campaign")
+        
+        if create_button:
+            success, message = create_campaign(new_id, new_name, new_platform, new_start_date, new_cost, new_clicks, new_conversions)
+            if success:
+                st.sidebar.success(message)
+            else:
+                st.sidebar.error(message)
+
+elif crud_action == 'Update':
+    st.sidebar.subheader("Update an Existing Campaign")
+    campaigns, _ = get_campaigns()
+    if campaigns:
+        campaign_ids = [c[0] for c in campaigns]
+        selected_id = st.sidebar.selectbox("Select Campaign ID to Update", campaign_ids)
+        
+        with st.sidebar.form("update_form"):
+            current_campaign = next((c for c in campaigns if c[0] == selected_id), None)
+            if current_campaign:
+                upd_id = current_campaign[0]
+                upd_name = st.text_input("Campaign Name", value=current_campaign[1])
+                upd_platform = st.selectbox("Platform", ['Google Ads', 'Facebook Ads', 'Twitter Ads', 'Instagram Ads', 'Other'], index=['Google Ads', 'Facebook Ads', 'Twitter Ads', 'Instagram Ads', 'Other'].index(current_campaign[2]))
+                upd_start_date = st.date_input("Start Date", value=current_campaign[3])
+                upd_cost = st.number_input("Cost ($)", value=current_campaign[4], format="%.2f")
+                upd_clicks = st.number_input("Clicks", value=current_campaign[5], step=1)
+                upd_conversions = st.number_input("Conversions", value=current_campaign[6], step=1)
+                update_button = st.form_submit_button("Update Campaign")
+                
+                if update_button:
+                    success, message = update_campaign(upd_id, upd_name, upd_platform, upd_start_date, upd_cost, upd_clicks, upd_conversions)
+                    if success:
+                        st.sidebar.success(message)
+                    else:
+                        st.sidebar.error(message)
+
+elif crud_action == 'Delete':
+    st.sidebar.subheader("Delete a Campaign")
+    campaigns, _ = get_campaigns()
+    if campaigns:
+        campaign_ids = [c[0] for c in campaigns]
+        selected_id = st.sidebar.selectbox("Select Campaign ID to Delete", campaign_ids)
+        delete_button = st.sidebar.button("Delete Campaign")
+        
+        if delete_button:
+            success, message = delete_campaign(selected_id)
+            if success:
+                st.sidebar.success(message)
+            else:
+                st.sidebar.error(message)
+
+# --- READ & FILTERING SECTION ---
+st.header("Campaign Data")
+platforms, _ = get_platforms()
+filter_options = ['All'] + platforms
+selected_platform = st.selectbox("Filter by Platform", filter_options)
+
+sort_option = st.radio(
+    "Sort by",
+    ['cost', 'clicks', 'conversions'],
+    horizontal=True
+)
+
+st.markdown("---")
+
+# Fetch and display the campaign data
+campaigns, error = get_campaigns(platform_filter=selected_platform, sort_by=sort_option)
+if error:
+    st.error(f"Error fetching data: {error}")
+elif campaigns:
+    df = pd.DataFrame(
+        campaigns,
+        columns=["Campaign ID", "Campaign Name", "Platform", "Start Date", "Cost", "Clicks", "Conversions"]
+    )
+    # Display the filtered and sorted DataFrame
+    st.dataframe(df.set_index('Campaign ID'), use_container_width=True)
+else:
+    st.info("No campaigns found matching the filter criteria.")
+
