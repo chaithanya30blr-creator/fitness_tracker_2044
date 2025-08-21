@@ -1,0 +1,190 @@
+# fitness_tracker_2044 import psycopg2
+from psycopg2 import sql
+
+# NOTE: For a production application, these credentials should be stored securely
+# in environment variables and not hardcoded.
+DB_NAME = "campaign_manager"
+DB_USER = "PostgreSQL 17"
+DB_PASSWORD = "Image@01"
+DB_HOST = "localhost"
+DB_PORT = "5432"
+
+def get_db_connection():
+    """
+    Establishes and returns a connection to the PostgreSQL database.
+    """
+    try:
+        conn = psycopg2.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=DB_PORT
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        print(f"Error connecting to the database: {e}")
+        return None
+
+def create_campaign(campaign_id, campaign_name, platform, start_date, cost, clicks, conversions):
+    """
+    C - CREATE operation: Inserts a new campaign into the database.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO campaigns (campaign_id, campaign_name, platform, start_date, cost, clicks, conversions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (campaign_id, campaign_name, platform, start_date, cost, clicks, conversions)
+                )
+            conn.commit()
+            return True, "Campaign created successfully!"
+        except psycopg2.DatabaseError as e:
+            conn.rollback()
+            return False, f"Database error: {e}"
+        finally:
+            conn.close()
+    return False, "Failed to connect to the database."
+
+def get_campaigns(platform_filter=None, sort_by='clicks', sort_order='DESC'):
+    """
+    R - READ operation: Retrieves campaigns from the database with optional
+    filtering and sorting.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                query = """
+                    SELECT campaign_id, campaign_name, platform, start_date, cost, clicks, conversions
+                    FROM campaigns
+                """
+                params = []
+                if platform_filter and platform_filter != 'All':
+                    query += " WHERE platform = %s"
+                    params.append(platform_filter)
+                
+                # Use sql.Identifier for safe sorting column names
+                sort_col = sql.Identifier(sort_by)
+                sort_dir = sql.SQL(sort_order)
+                query += " ORDER BY {} {}".format(sort_col.string, sort_dir.string)
+
+                cur.execute(query, params)
+                return cur.fetchall(), None
+        except psycopg2.DatabaseError as e:
+            return None, f"Database error: {e}"
+        finally:
+            conn.close()
+    return None, "Failed to connect to the database."
+
+def update_campaign(campaign_id, campaign_name, platform, start_date, cost, clicks, conversions):
+    """
+    U - UPDATE operation: Modifies an existing campaign's data.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE campaigns
+                    SET campaign_name = %s, platform = %s, start_date = %s,
+                        cost = %s, clicks = %s, conversions = %s
+                    WHERE campaign_id = %s
+                    """,
+                    (campaign_name, platform, start_date, cost, clicks, conversions, campaign_id)
+                )
+            conn.commit()
+            if cur.rowcount > 0:
+                return True, "Campaign updated successfully!"
+            else:
+                return False, "Campaign not found."
+        except psycopg2.DatabaseError as e:
+            conn.rollback()
+            return False, f"Database error: {e}"
+        finally:
+            conn.close()
+    return False, "Failed to connect to the database."
+
+def delete_campaign(campaign_id):
+    """
+    D - DELETE operation: Removes a campaign from the database.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM campaigns WHERE campaign_id = %s",
+                    (campaign_id,)
+                )
+            conn.commit()
+            if cur.rowcount > 0:
+                return True, "Campaign deleted successfully!"
+            else:
+                return False, "Campaign not found."
+        except psycopg2.DatabaseError as e:
+            conn.rollback()
+            return False, f"Database error: {e}"
+        finally:
+            conn.close()
+    return False, "Failed to connect to the database."
+
+def get_campaign_metrics():
+    """
+    Fetches aggregate business insights from the campaigns table.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT
+                        COUNT(campaign_id) AS total_campaigns,
+                        SUM(cost) AS total_cost,
+                        AVG(clicks) AS avg_clicks,
+                        MIN(cost) AS min_cost,
+                        MAX(cost) AS max_cost,
+                        SUM(clicks) AS total_clicks,
+                        SUM(conversions) AS total_conversions
+                    FROM campaigns
+                """)
+                metrics = cur.fetchone()
+                if metrics:
+                    return {
+                        "total_campaigns": metrics[0],
+                        "total_cost": metrics[1],
+                        "avg_clicks": metrics[2],
+                        "min_cost": metrics[3],
+                        "max_cost": metrics[4],
+                        "total_clicks": metrics[5],
+                        "total_conversions": metrics[6],
+                    }, None
+                else:
+                    return {}, None
+        except psycopg2.DatabaseError as e:
+            return None, f"Database error: {e}"
+        finally:
+            conn.close()
+    return None, "Failed to connect to the database."
+
+def get_platforms():
+    """
+    Retrieves all unique platforms for filtering.
+    """
+    conn = get_db_connection()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT platform FROM campaigns")
+                platforms = [row[0] for row in cur.fetchall()]
+                return platforms, None
+        except psycopg2.DatabaseError as e:
+            return None, f"Database error: {e}"
+        finally:
+            conn.close()
+    return None, "Failed to connect to the database."
